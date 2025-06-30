@@ -25,6 +25,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "absl/strings/numbers.h"
+#include "absl/cleanup/cleanup.h"
 
 #ifdef HAVE_CUDA
 
@@ -32,6 +33,10 @@
 #include <cufile.h>
 
 #endif
+
+#include "/workspace/perf.hpp"
+
+PERF_DECL(send_time)
 
 namespace {
     void moveNotifList(notif_list_t &src, notif_list_t &tgt)
@@ -1037,6 +1042,9 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
         return NIXL_ERR_INVALID_PARAM;
     }
 
+    PERF_START(send_time);
+    auto perf_guard = absl::MakeCleanup([&]() { PERF_END(send_time); });
+
     for(i = 0; i < lcnt; i++) {
         void *laddr = (void*) local[i].addr;
         size_t lsize = local[i].len;
@@ -1116,6 +1124,9 @@ nixl_status_t nixlUcxEngine::checkXfer (nixlBackendReqH* handle) const
 
 nixl_status_t nixlUcxEngine::releaseReqH(nixlBackendReqH* handle) const
 {
+    NIXL_WARN << PERF_REPORT(send_time);
+    PERF_RESET(send_time);
+
     nixlUcxBackendH *intHandle = (nixlUcxBackendH *)handle;
     nixl_status_t status = intHandle->release();
 
