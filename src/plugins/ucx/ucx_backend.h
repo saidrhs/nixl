@@ -103,9 +103,8 @@ class nixlUcxCudaCtx;
 class nixlUcxCudaDevicePrimaryCtx;
 using nixlUcxCudaDevicePrimaryCtxPtr = std::shared_ptr<nixlUcxCudaDevicePrimaryCtx>;
 
-class nixlUcxEngine
-    : public nixlBackendEngine {
-protected:
+class nixlUcxEngine : public nixlBackendEngine {
+private:
     /* UCX data */
     std::unique_ptr<nixlUcxContext> uc;
     std::vector<std::unique_ptr<nixlUcxWorker>> uws;
@@ -132,8 +131,6 @@ protected:
     vramFiniCtx();
     int
     vramUpdateCtx(void *address, uint64_t devId, bool &restart_reqd);
-    virtual int
-    vramApplyCtx();
 
     // Connection helper
     static ucs_status_t
@@ -170,19 +167,37 @@ protected:
                   nixlUcxReq &req,
                   size_t worker_id) const;
 
-    virtual void
-    appendNotif(std::string remote_name, std::string msg);
+protected:
+    const std::vector<std::unique_ptr<nixlUcxWorker>> &
+    getWorkers() const {
+        return uws;
+    }
+
+    const std::unique_ptr<nixlUcxWorker> &
+    getWorker(size_t worker_id) const {
+        return uws[worker_id];
+    }
+
+    void
+    getNotifsImpl(notif_list_t &notif_list);
 
     virtual size_t
     getWorkerId() const {
         return std::hash<std::thread::id>{}(std::this_thread::get_id()) % uws.size();
     }
 
+    virtual int
+    vramApplyCtx();
+
+    virtual void
+    appendNotif(std::string remote_name, std::string msg);
+
+    nixlUcxEngine(const nixlBackendInitParams &init_params);
+
     public:
         static std::unique_ptr<nixlUcxEngine>
         create(const nixlBackendInitParams &init_params);
 
-        nixlUcxEngine(const nixlBackendInitParams &init_params);
         ~nixlUcxEngine();
 
         bool supportsRemote() const override { return true; }
@@ -259,11 +274,8 @@ protected:
 
         //public function for UCX worker to mark connections as connected
         nixl_status_t checkConn(const std::string &remote_agent);
-        nixl_status_t endConn(const std::string &remote_agent);
-
-        const std::unique_ptr<nixlUcxWorker> &getWorker(size_t worker_id) const {
-            return uws[worker_id];
-        }
+        nixl_status_t
+        endConn(const std::string &remote_agent);
 };
 
 /**
@@ -271,19 +283,26 @@ protected:
  * TODO: can it be merged with nixlUcxThreadPoolEngine?
  */
 class nixlUcxThreadEngine : public nixlUcxEngine {
+public:
+    nixlUcxThreadEngine(const nixlBackendInitParams &init_params);
+    ~nixlUcxThreadEngine();
+
+    bool
+    supportsProgTh() const override {
+        return true;
+    }
+
+    nixl_status_t
+    getNotifs(notif_list_t &notif_list) override;
+
+protected:
+    int
+    vramApplyCtx() override;
+
+    void
+    appendNotif(std::string remote_name, std::string msg) override;
+
 private:
-    std::mutex pthrActiveLock;
-    std::condition_variable pthrActiveCV;
-    bool pthrActive;
-    std::thread pthr;
-    std::chrono::milliseconds pthrDelay;
-    int pthrControlPipe[2];
-    std::vector<pollfd> pollFds;
-
-    std::mutex notifMtx;
-    notif_list_t notifPthrPriv;
-    notif_list_t notifPthr;
-
     // Threading infrastructure
     //   TODO: move the thread management one outside of NIXL common infra
     void
@@ -298,26 +317,22 @@ private:
         return std::this_thread::get_id() == pthr.get_id();
     }
 
-    int
-    vramApplyCtx() override;
-    void
-    appendNotif(std::string remote_name, std::string msg) override;
     void
     notifProgress();
     void
     notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt);
 
-public:
-    nixlUcxThreadEngine(const nixlBackendInitParams &init_params);
-    ~nixlUcxThreadEngine();
+    std::mutex pthrActiveLock;
+    std::condition_variable pthrActiveCV;
+    bool pthrActive;
+    std::thread pthr;
+    std::chrono::milliseconds pthrDelay;
+    int pthrControlPipe[2];
+    std::vector<pollfd> pollFds;
 
-    bool
-    supportsProgTh() const override {
-        return true;
-    }
-
-    nixl_status_t
-    getNotifs(notif_list_t &notif_list) override;
+    std::mutex notifMtx;
+    notif_list_t notifPthrPriv;
+    notif_list_t notifPthr;
 };
 
 #endif

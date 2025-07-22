@@ -433,14 +433,11 @@ public:
 nixlUcxThreadEngine::nixlUcxThreadEngine(const nixlBackendInitParams &init_params)
     : nixlUcxEngine(init_params) {
     if (!nixlUcxMtLevelIsSupported(nixl_ucx_mt_t::WORKER)) {
-        NIXL_ERROR << "UCX library does not support multi-threading";
-        this->initErr = true;
-        return;
+        throw std::invalid_argument("UCX library does not support multi-threading");
     }
+
     if (pipe(pthrControlPipe) < 0) {
-        NIXL_PERROR << "Couldn't create progress thread control pipe";
-        this->initErr = true;
-        return;
+        throw std::runtime_error("Couldn't create progress thread control pipe");
     }
 
     // This will ensure that the resulting delay is at least 1ms and fits into int in order for
@@ -449,7 +446,7 @@ nixlUcxThreadEngine::nixlUcxThreadEngine(const nixlBackendInitParams &init_param
         init_params.pthrDelay < std::numeric_limits<int>::max() ? init_params.pthrDelay :
                                                                   std::numeric_limits<int>::max()));
 
-    for (auto &uw : uws) {
+    for (auto &uw : getWorkers()) {
         pollFds.push_back({uw->getEfd(), POLLIN, 0});
     }
     pollFds.push_back({pthrControlPipe[0], POLLIN, 0});
@@ -486,7 +483,7 @@ nixlUcxThreadEngine::progressFunc() {
 
             bool made_progress = false;
             nixl_status_t status;
-            const auto &uw = uws[wid];
+            const auto &uw = getWorkers()[wid];
             do {
                 while (uw->progress())
                     made_progress = true;
@@ -552,7 +549,7 @@ void
 nixlUcxThreadEngine::appendNotif(std::string remote_name, std::string msg) {
     if (isProgressThread()) {
         /* Append to the private list to allow batching */
-        std::unique_lock<std::mutex> lock(pthrActiveLock);
+        std::unique_lock<std::mutex> lock(notifMtx);
         notifPthrPriv.push_back(std::make_pair(std::move(remote_name), std::move(msg)));
     } else {
         nixlUcxEngine::appendNotif(std::move(remote_name), std::move(msg));
@@ -574,7 +571,7 @@ nixl_status_t
 nixlUcxThreadEngine::getNotifs(notif_list_t &notif_list) {
     if (!notif_list.empty()) return NIXL_ERR_INVALID_PARAM;
 
-    moveNotifList(notifMainList, notif_list);
+    getNotifsImpl(notif_list);
     notifProgressCombineHelper(notifPthr, notif_list);
     return NIXL_SUCCESS;
 }
@@ -1189,7 +1186,7 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
 
 void
 nixlUcxEngine::appendNotif(std::string remote_name, std::string msg) {
-    notifMainList.push_back(std::make_pair(std::move(remote_name), std::move(msg)));
+    notifMainList.emplace_back(std::move(remote_name), std::move(msg));
 }
 
 ucs_status_t
@@ -1215,13 +1212,18 @@ nixlUcxEngine::notifAmCb(void *arg, const void *header,
     return UCS_OK;
 }
 
+void
+nixlUcxEngine::getNotifsImpl(notif_list_t &notif_list) {
+    moveNotifList(notifMainList, notif_list);
+}
+
 nixl_status_t nixlUcxEngine::getNotifs(notif_list_t &notif_list)
 {
     if (!notif_list.empty()) return NIXL_ERR_INVALID_PARAM;
 
     while (progress())
         ;
-    moveNotifList(notifMainList, notif_list);
+    getNotifsImpl(notif_list);
     return NIXL_SUCCESS;
 }
 
