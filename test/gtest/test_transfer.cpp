@@ -97,11 +97,14 @@ class TestTransfer :
     // Tuple fields are: backend_name, enable_progress_thread, num_workers
     public testing::TestWithParam<std::tuple<std::string, bool, size_t>> {
 protected:
-    nixlAgentConfig getConfig(int listen_port)
-    {
-        return nixlAgentConfig(isProgressThreadEnabled(), listen_port > 0,
-                               listen_port, nixl_thread_sync_t::NIXL_THREAD_SYNC_RW,
-                               0, 100000);
+    nixlAgentConfig
+    getConfig(int listen_port) {
+        return nixlAgentConfig(isProgressThreadEnabled(),
+                               listen_port > 0,
+                               listen_port,
+                               nixl_thread_sync_t::NIXL_THREAD_SYNC_RW,
+                               0,
+                               100000);
     }
 
     static int getPort(int i)
@@ -148,13 +151,13 @@ protected:
         return std::get<0>(GetParam());
     }
 
-    bool isProgressThreadEnabled() const
-    {
+    bool
+    isProgressThreadEnabled() const {
         return std::get<1>(GetParam());
     }
 
-    size_t getNumWorkers() const
-    {
+    size_t
+    getNumWorkers() const {
         return std::get<2>(GetParam());
     }
 

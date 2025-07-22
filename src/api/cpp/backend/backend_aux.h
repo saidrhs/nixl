@@ -54,8 +54,9 @@ class nixlBackendInitParams {
         nixlTime::us_t    pthrDelay;
         nixl_thread_sync_t syncMode;
 
-        template <typename T>
-        T getOrDefault(const std::string &key, T defaultValue) const {
+        template<typename T>
+        T
+        getOrDefault(const std::string &key, T defaultValue) const {
             auto it = customParams->find(key);
             if (it == customParams->end()) {
                 return defaultValue;

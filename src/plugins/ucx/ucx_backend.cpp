@@ -324,8 +324,10 @@ protected:
     struct Notif {
         std::string agent;
         nixl_blob_t payload;
-        Notif(const std::string& remote_agent, const nixl_blob_t& msg) :
-            agent(remote_agent), payload(msg) {}
+
+        Notif(const std::string &remote_agent, const nixl_blob_t &msg)
+            : agent(remote_agent),
+              payload(msg) {}
     };
     std::optional<Notif> notif;
 
@@ -334,8 +336,9 @@ public:
         return notif;
     }
 
-    nixlUcxBackendH(nixlUcxWorker *worker_, size_t worker_id_) :
-        worker(worker_), worker_id(worker_id_) {}
+    nixlUcxBackendH(nixlUcxWorker *worker_, size_t worker_id_)
+        : worker(worker_),
+          worker_id(worker_id_) {}
 
     void append(nixlUcxIntReq *req) {
         head.link(req);
@@ -376,7 +379,8 @@ public:
         }
 
         /* Maximum progress */
-        while (worker->progress());
+        while (worker->progress())
+            ;
 
         /* Go over all request updating their status */
         while (req) {
@@ -441,11 +445,11 @@ nixlUcxThreadEngine::nixlUcxThreadEngine(const nixlBackendInitParams &init_param
 
     // This will ensure that the resulting delay is at least 1ms and fits into int in order for
     // it to be compatible with poll()
-    pthrDelay = std::chrono::ceil<std::chrono::milliseconds>(
-        std::chrono::microseconds(init_params.pthrDelay < std::numeric_limits<int>::max() ?
-                                  init_params.pthrDelay : std::numeric_limits<int>::max()));
+    pthrDelay = std::chrono::ceil<std::chrono::milliseconds>(std::chrono::microseconds(
+        init_params.pthrDelay < std::numeric_limits<int>::max() ? init_params.pthrDelay :
+                                                                  std::numeric_limits<int>::max()));
 
-    for (auto &uw: uws) {
+    for (auto &uw : uws) {
         pollFds.push_back({uw->getEfd(), POLLIN, 0});
     }
     pollFds.push_back({pthrControlPipe[0], POLLIN, 0});
@@ -459,8 +463,8 @@ nixlUcxThreadEngine::~nixlUcxThreadEngine() {
     close(pthrControlPipe[1]);
 }
 
-void nixlUcxThreadEngine::progressFunc()
-{
+void
+nixlUcxThreadEngine::progressFunc() {
     using namespace nixlTime;
 
     nixlUcxEngine::vramApplyCtx();
@@ -515,8 +519,8 @@ void nixlUcxThreadEngine::progressFunc()
     }
 }
 
-void nixlUcxThreadEngine::progressThreadStart()
-{
+void
+nixlUcxThreadEngine::progressThreadStart() {
     {
         std::unique_lock<std::mutex> lock(pthrActiveLock);
         pthrActive = false;
@@ -528,8 +532,8 @@ void nixlUcxThreadEngine::progressThreadStart()
     pthrActiveCV.wait(lock, [&]{ return pthrActive; });
 }
 
-void nixlUcxThreadEngine::progressThreadStop()
-{
+void
+nixlUcxThreadEngine::progressThreadStop() {
     const char signal = 'X';
     int ret = write(pthrControlPipe[1], &signal, sizeof(signal));
     if (ret < 0)
@@ -537,15 +541,15 @@ void nixlUcxThreadEngine::progressThreadStop()
     pthr.join();
 }
 
-int nixlUcxThreadEngine::vramApplyCtx()
-{
+int
+nixlUcxThreadEngine::vramApplyCtx() {
     progressThreadStop();
     progressThreadStart();
     return nixlUcxEngine::vramApplyCtx();
 }
 
-void nixlUcxThreadEngine::appendNotif(std::string remote_name, std::string msg)
-{
+void
+nixlUcxThreadEngine::appendNotif(std::string remote_name, std::string msg) {
     if (isProgressThread()) {
         /* Append to the private list to allow batching */
         std::unique_lock<std::mutex> lock(pthrActiveLock);
@@ -555,21 +559,20 @@ void nixlUcxThreadEngine::appendNotif(std::string remote_name, std::string msg)
     }
 }
 
-void nixlUcxThreadEngine::notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt)
-{
+void
+nixlUcxThreadEngine::notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt) {
     const std::lock_guard<std::mutex> lock(notifMtx);
     moveNotifList(src, tgt);
 }
 
-void nixlUcxThreadEngine::notifProgress()
-{
+void
+nixlUcxThreadEngine::notifProgress() {
     notifProgressCombineHelper(notifPthrPriv, notifPthr);
 }
 
-nixl_status_t nixlUcxThreadEngine::getNotifs(notif_list_t &notif_list)
-{
-    if (!notif_list.empty())
-        return NIXL_ERR_INVALID_PARAM;
+nixl_status_t
+nixlUcxThreadEngine::getNotifs(notif_list_t &notif_list) {
+    if (!notif_list.empty()) return NIXL_ERR_INVALID_PARAM;
 
     moveNotifList(notifMainList, notif_list);
     notifProgressCombineHelper(notifPthr, notif_list);
@@ -578,11 +581,10 @@ nixl_status_t nixlUcxThreadEngine::getNotifs(notif_list_t &notif_list)
 
 /****************************************
  * Constructor/Destructor
-*****************************************/
+ *****************************************/
 
 std::unique_ptr<nixlUcxEngine>
-nixlUcxEngine::create(const nixlBackendInitParams &init_params)
-{
+nixlUcxEngine::create(const nixlBackendInitParams &init_params) {
     nixlUcxEngine *engine;
     if (init_params.enableProgTh) {
         engine = new nixlUcxThreadEngine(init_params);
@@ -593,11 +595,10 @@ nixlUcxEngine::create(const nixlBackendInitParams &init_params)
 }
 
 nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams &init_params)
-    : nixlBackendEngine(&init_params)
-{
+    : nixlBackendEngine(&init_params) {
     size_t numWorkers;
     std::vector<std::string> devs; /* Empty vector */
-    nixl_b_params_t* custom_params = init_params.customParams;
+    nixl_b_params_t *custom_params = init_params.customParams;
 
     if (custom_params->count("device_list")!=0)
         devs = str_split((*custom_params)["device_list"], ", ");
@@ -1055,7 +1056,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     for(i = 0; i < lcnt; i++) {
         void *laddr = (void*) local[i].addr;
         size_t lsize = local[i].len;
-        uint64_t raddr = (uint64_t) remote[i].addr;
+        uint64_t raddr = (uint64_t)remote[i].addr;
         size_t rsize = remote[i].len;
 
         lmd = (nixlUcxPrivateMetadata*) local[i].metadataP;
@@ -1186,8 +1187,8 @@ nixl_status_t nixlUcxEngine::notifSendPriv(const std::string &remote_agent,
     return ret;
 }
 
-void nixlUcxEngine::appendNotif(std::string remote_name, std::string msg)
-{
+void
+nixlUcxEngine::appendNotif(std::string remote_name, std::string msg) {
     notifMainList.push_back(std::make_pair(std::move(remote_name), std::move(msg)));
 }
 
@@ -1216,10 +1217,10 @@ nixlUcxEngine::notifAmCb(void *arg, const void *header,
 
 nixl_status_t nixlUcxEngine::getNotifs(notif_list_t &notif_list)
 {
-    if (!notif_list.empty())
-        return NIXL_ERR_INVALID_PARAM;
+    if (!notif_list.empty()) return NIXL_ERR_INVALID_PARAM;
 
-    while(progress());
+    while (progress())
+        ;
     moveNotifList(notifMainList, notif_list);
     return NIXL_SUCCESS;
 }
