@@ -194,88 +194,111 @@ protected:
 
     nixlUcxEngine(const nixlBackendInitParams &init_params);
 
-    public:
-        static std::unique_ptr<nixlUcxEngine>
-        create(const nixlBackendInitParams &init_params);
+public:
+    static std::unique_ptr<nixlUcxEngine>
+    create(const nixlBackendInitParams &init_params);
 
-        ~nixlUcxEngine();
+    ~nixlUcxEngine();
 
-        bool supportsRemote() const override { return true; }
-        bool supportsLocal() const override { return true; }
+    bool
+    supportsRemote() const override {
+        return true;
+    }
 
-        bool
-        supportsNotif() const override {
-            return true;
-        }
+    bool
+    supportsLocal() const override {
+        return true;
+    }
 
-        bool
-        supportsProgTh() const override {
-            return false;
-        }
+    bool
+    supportsNotif() const override {
+        return true;
+    }
 
-        nixl_mem_list_t getSupportedMems() const override;
+    bool
+    supportsProgTh() const override {
+        return false;
+    }
 
-        /* Object management */
-        nixl_status_t getPublicData (const nixlBackendMD* meta,
-                                     std::string &str) const override;
-        nixl_status_t getConnInfo(std::string &str) const override;
-        nixl_status_t loadRemoteConnInfo (const std::string &remote_agent,
-                                          const std::string &remote_conn_info) override;
+    nixl_mem_list_t
+    getSupportedMems() const override;
 
-        nixl_status_t connect(const std::string &remote_agent) override;
-        nixl_status_t disconnect(const std::string &remote_agent) override;
+    /* Object management */
+    nixl_status_t
+    getPublicData(const nixlBackendMD *meta, std::string &str) const override;
+    nixl_status_t
+    getConnInfo(std::string &str) const override;
+    nixl_status_t
+    loadRemoteConnInfo(const std::string &remote_agent,
+                       const std::string &remote_conn_info) override;
 
-        nixl_status_t registerMem (const nixlBlobDesc &mem,
-                                   const nixl_mem_t &nixl_mem,
-                                   nixlBackendMD* &out) override;
-        nixl_status_t deregisterMem (nixlBackendMD* meta) override;
+    nixl_status_t
+    connect(const std::string &remote_agent) override;
+    nixl_status_t
+    disconnect(const std::string &remote_agent) override;
 
-        nixl_status_t loadLocalMD (nixlBackendMD* input,
-                                   nixlBackendMD* &output) override;
+    nixl_status_t
+    registerMem(const nixlBlobDesc &mem, const nixl_mem_t &nixl_mem, nixlBackendMD *&out) override;
+    nixl_status_t
+    deregisterMem(nixlBackendMD *meta) override;
 
-        nixl_status_t loadRemoteMD (const nixlBlobDesc &input,
-                                    const nixl_mem_t &nixl_mem,
-                                    const std::string &remote_agent,
-                                    nixlBackendMD* &output) override;
-        nixl_status_t unloadMD (nixlBackendMD* input) override;
+    nixl_status_t
+    loadLocalMD(nixlBackendMD *input, nixlBackendMD *&output) override;
 
-        // Data transfer
-        nixl_status_t prepXfer (const nixl_xfer_op_t &operation,
-                                const nixl_meta_dlist_t &local,
-                                const nixl_meta_dlist_t &remote,
-                                const std::string &remote_agent,
-                                nixlBackendReqH* &handle,
-                                const nixl_opt_b_args_t* opt_args=nullptr) const override;
+    nixl_status_t
+    loadRemoteMD(const nixlBlobDesc &input,
+                 const nixl_mem_t &nixl_mem,
+                 const std::string &remote_agent,
+                 nixlBackendMD *&output) override;
+    nixl_status_t
+    unloadMD(nixlBackendMD *input) override;
 
-        nixl_status_t estimateXferCost(const nixl_xfer_op_t &operation,
-                                       const nixl_meta_dlist_t &local,
-                                       const nixl_meta_dlist_t &remote,
-                                       const std::string &remote_agent,
-                                       nixlBackendReqH* const &handle,
-                                       std::chrono::microseconds &duration,
-                                       std::chrono::microseconds &err_margin,
-                                       nixl_cost_t &method,
-                                       const nixl_opt_args_t* opt_args=nullptr) const override;
+    // Data transfer
+    nixl_status_t
+    prepXfer(const nixl_xfer_op_t &operation,
+             const nixl_meta_dlist_t &local,
+             const nixl_meta_dlist_t &remote,
+             const std::string &remote_agent,
+             nixlBackendReqH *&handle,
+             const nixl_opt_b_args_t *opt_args = nullptr) const override;
 
-        nixl_status_t postXfer (const nixl_xfer_op_t &operation,
-                                const nixl_meta_dlist_t &local,
-                                const nixl_meta_dlist_t &remote,
-                                const std::string &remote_agent,
-                                nixlBackendReqH* &handle,
-                                const nixl_opt_b_args_t* opt_args=nullptr) const override;
+    nixl_status_t
+    estimateXferCost(const nixl_xfer_op_t &operation,
+                     const nixl_meta_dlist_t &local,
+                     const nixl_meta_dlist_t &remote,
+                     const std::string &remote_agent,
+                     nixlBackendReqH *const &handle,
+                     std::chrono::microseconds &duration,
+                     std::chrono::microseconds &err_margin,
+                     nixl_cost_t &method,
+                     const nixl_opt_args_t *opt_args = nullptr) const override;
 
-        nixl_status_t checkXfer (nixlBackendReqH* handle) const override;
-        nixl_status_t releaseReqH(nixlBackendReqH* handle) const override;
+    nixl_status_t
+    postXfer(const nixl_xfer_op_t &operation,
+             const nixl_meta_dlist_t &local,
+             const nixl_meta_dlist_t &remote,
+             const std::string &remote_agent,
+             nixlBackendReqH *&handle,
+             const nixl_opt_b_args_t *opt_args = nullptr) const override;
 
-        int progress() override;
+    nixl_status_t
+    checkXfer(nixlBackendReqH *handle) const override;
+    nixl_status_t
+    releaseReqH(nixlBackendReqH *handle) const override;
 
-        nixl_status_t getNotifs(notif_list_t &notif_list);
-        nixl_status_t genNotif(const std::string &remote_agent, const std::string &msg) const override;
+    int
+    progress() override;
 
-        //public function for UCX worker to mark connections as connected
-        nixl_status_t checkConn(const std::string &remote_agent);
-        nixl_status_t
-        endConn(const std::string &remote_agent);
+    nixl_status_t
+    getNotifs(notif_list_t &notif_list);
+    nixl_status_t
+    genNotif(const std::string &remote_agent, const std::string &msg) const override;
+
+    // public function for UCX worker to mark connections as connected
+    nixl_status_t
+    checkConn(const std::string &remote_agent);
+    nixl_status_t
+    endConn(const std::string &remote_agent);
 };
 
 /**
