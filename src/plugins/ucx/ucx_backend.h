@@ -187,7 +187,10 @@ protected:
 
         bool supportsRemote() const override { return true; }
         bool supportsLocal() const override { return true; }
-        bool supportsNotif() const override { return true;
+
+        bool
+        supportsNotif() const override {
+            return true;
         }
 
         bool
