@@ -22,6 +22,7 @@
 #include "nixl_types.h"
 #include "nixl_descriptors.h"
 #include "common/nixl_time.h"
+#include "absl/strings/numbers.h"
 
 // Might be removed to be decided by backend, or changed to high
 // level direction or so.
@@ -52,6 +53,18 @@ class nixlBackendInitParams {
         bool              enableProgTh;
         nixlTime::us_t    pthrDelay;
         nixl_thread_sync_t syncMode;
+
+        template <typename T>
+        T getOrDefault(const std::string &key, T defaultValue) const {
+            auto it = customParams->find(key);
+            if (it == customParams->end()) {
+                return defaultValue;
+            }
+
+            T result;
+            if constexpr (std::is_same_v<T, int>)
+                return absl::SimpleAtoi(it->second, &result) ? result : defaultValue;
+        }
 };
 
 // Pure virtual class to have a common pointer type

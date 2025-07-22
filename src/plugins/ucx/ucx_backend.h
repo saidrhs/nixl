@@ -105,7 +105,7 @@ using nixlUcxCudaDevicePrimaryCtxPtr = std::shared_ptr<nixlUcxCudaDevicePrimaryC
 
 class nixlUcxEngine
     : public nixlBackendEngine {
-    private:
+    protected:
         /* UCX data */
         std::unique_ptr<nixlUcxContext> uc;
         std::vector<std::unique_ptr<nixlUcxWorker>> uws;
@@ -183,8 +183,11 @@ class nixlUcxEngine
         void notifProgress();
         void notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt);
 
+        nixlUcxEngine(const nixlBackendInitParams& init_params);
+
     public:
-        nixlUcxEngine(const nixlBackendInitParams* init_params);
+        static std::unique_ptr<nixlUcxEngine>
+        create(const nixlBackendInitParams &init_params);
         ~nixlUcxEngine();
 
         bool supportsRemote() const override { return true; }

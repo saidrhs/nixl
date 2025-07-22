@@ -313,17 +313,19 @@ static void _internalRequestReset(nixlUcxIntReq *req) {
 *****************************************/
 
 class nixlUcxBackendH : public nixlBackendReqH {
-private:
+protected:
+    // TODO: use std::vector here for a single allocation and cache friendly
+    // traversal
     nixlUcxIntReq head;
-    const nixlUcxEngine &eng;
+    nixlUcxWorker *worker;
     size_t worker_id;
 
     // Notification to be sent after completion of all requests
     struct Notif {
-	    std::string agent;
-	    nixl_blob_t payload;
-	    Notif(const std::string& remote_agent, const nixl_blob_t& msg)
-		    : agent(remote_agent), payload(msg) {}
+        std::string agent;
+        nixl_blob_t payload;
+        Notif(const std::string& remote_agent, const nixl_blob_t& msg) :
+            agent(remote_agent), payload(msg) {}
     };
     std::optional<Notif> notif;
 
@@ -332,7 +334,8 @@ public:
         return notif;
     }
 
-    nixlUcxBackendH(const nixlUcxEngine &eng_, size_t worker_id_): eng(eng_), worker_id(worker_id_) {}
+    nixlUcxBackendH(nixlUcxWorker *worker_, size_t worker_id_) :
+        worker(worker_), worker_id(worker_id_) {}
 
     void append(nixlUcxIntReq *req) {
         head.link(req);
@@ -346,23 +349,21 @@ public:
             return NIXL_SUCCESS;
         }
 
-        const auto &uw = eng.getWorker(worker_id);
         // TODO: Error log: uncompleted requests found! Cancelling ...
-        while(req) {
+        while (req) {
             nixlUcxIntReq *cur = req;
             bool done = cur->is_complete();
             req = cur->unlink();
             if (!done) {
                 // TODO: Need process this properly.
                 // it may not be enough to cancel UCX request
-                uw->reqCancel((nixlUcxReq)cur);
+                worker->reqCancel((nixlUcxReq)cur);
             }
             _internalRequestReset(cur);
-            uw->reqRelease((nixlUcxReq)cur);
+            worker->reqRelease((nixlUcxReq)cur);
         }
         return NIXL_SUCCESS;
     }
-
 
     nixl_status_t status()
     {
@@ -374,13 +375,11 @@ public:
             return NIXL_SUCCESS;
         }
 
-        const auto &uw = eng.getWorker(worker_id);
-
         /* Maximum progress */
-        while (uw->progress());
+        while (worker->progress());
 
         /* Go over all request updating their status */
-        while(req) {
+        while (req) {
             nixl_status_t ret;
             if (!req->is_complete()) {
                 ret = ucx_status_to_nixl(ucp_request_check_status((nixlUcxReq)req));
@@ -403,11 +402,11 @@ public:
         /* Remove completed requests keeping the first one as
         request representative */
         req = head.unlink();
-        while(req) {
+        while (req) {
             nixlUcxIntReq *next_req = req->unlink();
             if (req->is_complete()) {
                 _internalRequestReset(req);
-                uw->reqRelease((nixlUcxReq)req);
+                worker->reqRelease((nixlUcxReq)req);
             } else {
                 /* Enqueue back */
                 append(req);
@@ -525,14 +524,26 @@ void nixlUcxEngine::progressThreadRestart()
  * Constructor/Destructor
 *****************************************/
 
-nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams *init_params)
-    : nixlBackendEngine(init_params),
+std::unique_ptr<nixlUcxEngine>
+nixlUcxEngine::create(const nixlBackendInitParams &init_params)
+{
+    nixlUcxEngine *engine;
+    // if (init_params.enableProgTh) {
+    //     engine = new nixlUcxThreadEngine(init_params);
+    // } else {
+        engine = new nixlUcxEngine(init_params);
+    // }
+    return std::unique_ptr<nixlUcxEngine>(engine);
+}
+
+nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams &init_params)
+    : nixlBackendEngine(&init_params),
       pthrControlPipe{0, 0} {
     size_t numWorkers;
     std::vector<std::string> devs; /* Empty vector */
-    nixl_b_params_t* custom_params = init_params->customParams;
+    nixl_b_params_t* custom_params = init_params.customParams;
 
-    if (init_params->enableProgTh) {
+    if (init_params.enableProgTh) {
         if (!nixlUcxMtLevelIsSupported(nixl_ucx_mt_t::WORKER)) {
             throw std::invalid_argument("UCX library does not support multi-threading");
         }
@@ -544,8 +555,8 @@ nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams *init_params)
         // This will ensure that the resulting delay is at least 1ms and fits into int in order for
         // it to be compatible with poll()
         pthrDelay = std::chrono::ceil<std::chrono::milliseconds>(
-            std::chrono::microseconds(init_params->pthrDelay < std::numeric_limits<int>::max() ?
-                                          init_params->pthrDelay :
+            std::chrono::microseconds(init_params.pthrDelay < std::numeric_limits<int>::max() ?
+                                          init_params.pthrDelay :
                                           std::numeric_limits<int>::max()));
         pthrOn = true;
     } else {
@@ -574,7 +585,7 @@ nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams *init_params)
                                           _internalRequestFini,
                                           pthrOn,
                                           numWorkers,
-                                          init_params->syncMode);
+                                          init_params.syncMode);
 
     for (size_t i = 0; i < numWorkers; i++) {
         uws.emplace_back(std::make_unique<nixlUcxWorker>(*uc, err_handling_mode));
@@ -933,9 +944,8 @@ nixl_status_t nixlUcxEngine::prepXfer (const nixl_xfer_op_t &operation,
                                        const nixl_opt_b_args_t* opt_args) const
 {
     /* TODO: try to get from a pool first */
-    nixlUcxBackendH *intHandle = new nixlUcxBackendH(*this, getWorkerId());
-
-    handle = (nixlBackendReqH*)intHandle;
+    size_t workerId = getWorkerId();
+    handle = new nixlUcxBackendH(getWorker(workerId).get(), workerId);
     return NIXL_SUCCESS;
 }
 
