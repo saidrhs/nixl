@@ -566,9 +566,7 @@ nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams &init_params)
     if (custom_params->count("device_list")!=0)
         devs = str_split((*custom_params)["device_list"], ", ");
 
-    const auto num_workers_iter = custom_params->find("num_workers");
-    if (num_workers_iter == custom_params->end() || !absl::SimpleAtoi(num_workers_iter->second, &numWorkers))
-        numWorkers = 1;
+    numWorkers = init_params.getOrDefault("num_workers", 1);
 
     ucp_err_handling_mode_t err_handling_mode;
     const auto err_handling_mode_it =
@@ -924,6 +922,8 @@ static nixl_status_t _retHelper(nixl_status_t ret,  nixlUcxBackendH *hndl, nixlU
     /* if transfer wasn't immediately completed */
     switch(ret) {
         case NIXL_IN_PROG:
+            // TODO: this cast does not look safe
+            // We need to allocate a vector of nixlUcxIntReq and set nixlUcxReqt
             hndl->append((nixlUcxIntReq*)req);
         case NIXL_SUCCESS:
             // Nothing to do
@@ -943,6 +943,11 @@ nixl_status_t nixlUcxEngine::prepXfer (const nixl_xfer_op_t &operation,
                                        nixlBackendReqH* &handle,
                                        const nixl_opt_b_args_t* opt_args) const
 {
+    if (local.descCount() == 0 || remote.descCount() == 0) {
+        NIXL_ERROR << "Local or remote descriptor list is empty";
+        return NIXL_ERR_INVALID_PARAM;
+    }
+
     /* TODO: try to get from a pool first */
     size_t workerId = getWorkerId();
     handle = new nixlUcxBackendH(getWorker(workerId).get(), workerId);
@@ -1023,17 +1028,22 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     size_t workerId = intHandle->getWorkerId();
 
     if (lcnt != rcnt) {
+        NIXL_ERROR << "Local (" << lcnt << ") and remote (" << rcnt
+                   << ") descriptor lists differ in size";
         return NIXL_ERR_INVALID_PARAM;
     }
+
+    // TODO: assert that handle is empty/completed, as we can't post request before completion
 
     for(i = 0; i < lcnt; i++) {
         void *laddr = (void*) local[i].addr;
         size_t lsize = local[i].len;
-        void *raddr = (void*) remote[i].addr;
+        uint64_t raddr = (uint64_t) remote[i].addr;
         size_t rsize = remote[i].len;
 
         lmd = (nixlUcxPrivateMetadata*) local[i].metadataP;
         rmd = (nixlUcxPublicMetadata*) remote[i].metadataP;
+        auto &ep = rmd->conn->getEp(workerId);
 
         if (lsize != rsize) {
             return NIXL_ERR_INVALID_PARAM;
@@ -1041,10 +1051,10 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
 
         switch (operation) {
         case NIXL_READ:
-            ret = rmd->conn->getEp(workerId)->read((uint64_t) raddr, rmd->getRkey(workerId), laddr, lmd->mem, lsize, req);
+            ret = ep->read(raddr, rmd->getRkey(workerId), laddr, lmd->mem, lsize, req);
             break;
         case NIXL_WRITE:
-            ret = rmd->conn->getEp(workerId)->write(laddr, lmd->mem, (uint64_t) raddr, rmd->getRkey(workerId), lsize, req);
+            ret = ep->write(laddr, lmd->mem, raddr, rmd->getRkey(workerId), lsize, req);
             break;
         default:
             return NIXL_ERR_INVALID_PARAM;
@@ -1058,6 +1068,7 @@ nixl_status_t nixlUcxEngine::postXfer (const nixl_xfer_op_t &operation,
     /*
      * Flush keeps intHandle non-empty until the operation is actually
      * completed, which can happen after local requests completion.
+     * TODO: should we flush all distinct endpoints?
      */
     rmd = (nixlUcxPublicMetadata*) remote[0].metadataP;
     ret = rmd->conn->getEp(workerId)->flushEp(req);
