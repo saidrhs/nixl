@@ -93,13 +93,15 @@ private:
     const size_t size;
 };
 
-class TestTransfer : public testing::TestWithParam<std::string> {
+class TestTransfer :
+    // Tuple fields are: backend_name, enable_progress_thread, num_workers
+    public testing::TestWithParam<std::tuple<std::string, bool, size_t>> {
 protected:
-    static nixlAgentConfig getConfig(int listen_port)
+    nixlAgentConfig getConfig(int listen_port)
     {
-        return nixlAgentConfig(true, listen_port > 0, listen_port,
-                               nixl_thread_sync_t::NIXL_THREAD_SYNC_RW, 0,
-                               100000);
+        return nixlAgentConfig(isProgressThreadEnabled(), listen_port > 0,
+                               listen_port, nixl_thread_sync_t::NIXL_THREAD_SYNC_RW,
+                               0, 100000);
     }
 
     static int getPort(int i)
@@ -112,7 +114,7 @@ protected:
         nixl_b_params_t params;
 
         if (getBackendName() == "UCX" || getBackendName() == "UCX_MO") {
-            params["num_workers"] = "2";
+            params["num_workers"] = std::to_string(getNumWorkers());
         }
 
         return params;
@@ -143,7 +145,17 @@ protected:
 
     std::string getBackendName() const
     {
-        return GetParam();
+        return std::get<0>(GetParam());
+    }
+
+    bool isProgressThreadEnabled() const
+    {
+        return std::get<1>(GetParam());
+    }
+
+    size_t getNumWorkers() const
+    {
+        return std::get<2>(GetParam());
     }
 
     static nixl_opt_args_t extra_params_ip(int remote)
@@ -512,7 +524,7 @@ TEST_P(TestTransfer, ListenerCommSize) {
     deregisterMem(getAgent(1), buffers, DRAM_SEG);
 }
 
-INSTANTIATE_TEST_SUITE_P(ucx, TestTransfer, testing::Values("UCX"));
-INSTANTIATE_TEST_SUITE_P(ucx_mo, TestTransfer, testing::Values("UCX_MO"));
+INSTANTIATE_TEST_SUITE_P(ucx_pt, TestTransfer, testing::Values(std::make_tuple("UCX", true, 2)));
+INSTANTIATE_TEST_SUITE_P(ucx_mo, TestTransfer, testing::Values(std::make_tuple("UCX_MO", true, 2)));
 
 } // namespace gtest
