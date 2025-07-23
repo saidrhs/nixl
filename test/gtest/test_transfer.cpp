@@ -515,7 +515,9 @@ TEST_P(TestTransfer, ListenerCommSize) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ucx, TestTransfer, testing::Values(std::make_tuple("UCX", true, 2)));
-INSTANTIATE_TEST_SUITE_P(ucx_no_pt, TestTransfer, testing::Values(std::make_tuple("UCX", false, 2)));
+INSTANTIATE_TEST_SUITE_P(ucx_no_pt,
+                         TestTransfer,
+                         testing::Values(std::make_tuple("UCX", false, 2)));
 INSTANTIATE_TEST_SUITE_P(ucx_mo, TestTransfer, testing::Values(std::make_tuple("UCX_MO", true, 2)));
 
 } // namespace gtest
