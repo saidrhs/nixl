@@ -104,96 +104,6 @@ class nixlUcxCudaDevicePrimaryCtx;
 using nixlUcxCudaDevicePrimaryCtxPtr = std::shared_ptr<nixlUcxCudaDevicePrimaryCtx>;
 
 class nixlUcxEngine : public nixlBackendEngine {
-private:
-    /* UCX data */
-    std::unique_ptr<nixlUcxContext> uc;
-    std::vector<std::unique_ptr<nixlUcxWorker>> uws;
-    std::string workerAddr;
-
-    /* CUDA data*/
-    std::unique_ptr<nixlUcxCudaCtx> cudaCtx; // Context matching specific device
-    bool cuda_addr_wa;
-
-    // Context to use when current context is missing
-    nixlUcxCudaDevicePrimaryCtxPtr m_cudaPrimaryCtx;
-
-    /* Notifications */
-    notif_list_t notifMainList;
-
-    // Map of agent name to saved nixlUcxConnection info
-    std::unordered_map<std::string, ucx_connection_ptr_t, std::hash<std::string>, strEqual>
-        remoteConnMap;
-
-
-    void
-    vramInitCtx();
-    void
-    vramFiniCtx();
-    int
-    vramUpdateCtx(void *address, uint64_t devId, bool &restart_reqd);
-
-    // Connection helper
-    static ucs_status_t
-    connectionCheckAmCb(void *arg,
-                        const void *header,
-                        size_t header_length,
-                        void *data,
-                        size_t length,
-                        const ucp_am_recv_param_t *param);
-
-    static ucs_status_t
-    connectionTermAmCb(void *arg,
-                       const void *header,
-                       size_t header_length,
-                       void *data,
-                       size_t length,
-                       const ucp_am_recv_param_t *param);
-
-    // Memory management helpers
-    nixl_status_t
-    internalMDHelper(const nixl_blob_t &blob, const std::string &agent, nixlBackendMD *&output);
-
-    // Notifications
-    static ucs_status_t
-    notifAmCb(void *arg,
-              const void *header,
-              size_t header_length,
-              void *data,
-              size_t length,
-              const ucp_am_recv_param_t *param);
-    nixl_status_t
-    notifSendPriv(const std::string &remote_agent,
-                  const std::string &msg,
-                  nixlUcxReq &req,
-                  size_t worker_id) const;
-
-protected:
-    const std::vector<std::unique_ptr<nixlUcxWorker>> &
-    getWorkers() const {
-        return uws;
-    }
-
-    const std::unique_ptr<nixlUcxWorker> &
-    getWorker(size_t worker_id) const {
-        return uws[worker_id];
-    }
-
-    void
-    getNotifsImpl(notif_list_t &notif_list);
-
-    virtual size_t
-    getWorkerId() const {
-        return std::hash<std::thread::id>{}(std::this_thread::get_id()) % uws.size();
-    }
-
-    virtual int
-    vramApplyCtx();
-
-    virtual void
-    appendNotif(std::string remote_name, std::string msg);
-
-    nixlUcxEngine(const nixlBackendInitParams &init_params);
-
 public:
     static std::unique_ptr<nixlUcxEngine>
     create(const nixlBackendInitParams &init_params);
@@ -299,6 +209,96 @@ public:
     checkConn(const std::string &remote_agent);
     nixl_status_t
     endConn(const std::string &remote_agent);
+
+protected:
+    const std::vector<std::unique_ptr<nixlUcxWorker>> &
+    getWorkers() const {
+        return uws;
+    }
+
+    const std::unique_ptr<nixlUcxWorker> &
+    getWorker(size_t worker_id) const {
+        return uws[worker_id];
+    }
+
+    void
+    getNotifsImpl(notif_list_t &notif_list);
+
+    virtual size_t
+    getWorkerId() const {
+        return std::hash<std::thread::id>{}(std::this_thread::get_id()) % uws.size();
+    }
+
+    virtual int
+    vramApplyCtx();
+
+    virtual void
+    appendNotif(std::string remote_name, std::string msg);
+
+    nixlUcxEngine(const nixlBackendInitParams &init_params);
+
+private:
+    void
+    vramInitCtx();
+    void
+    vramFiniCtx();
+    int
+    vramUpdateCtx(void *address, uint64_t devId, bool &restart_reqd);
+
+    // Connection helper
+    static ucs_status_t
+    connectionCheckAmCb(void *arg,
+                        const void *header,
+                        size_t header_length,
+                        void *data,
+                        size_t length,
+                        const ucp_am_recv_param_t *param);
+
+    static ucs_status_t
+    connectionTermAmCb(void *arg,
+                       const void *header,
+                       size_t header_length,
+                       void *data,
+                       size_t length,
+                       const ucp_am_recv_param_t *param);
+
+    // Memory management helpers
+    nixl_status_t
+    internalMDHelper(const nixl_blob_t &blob, const std::string &agent, nixlBackendMD *&output);
+
+    // Notifications
+    static ucs_status_t
+    notifAmCb(void *arg,
+              const void *header,
+              size_t header_length,
+              void *data,
+              size_t length,
+              const ucp_am_recv_param_t *param);
+
+    nixl_status_t
+    notifSendPriv(const std::string &remote_agent,
+                  const std::string &msg,
+                  nixlUcxReq &req,
+                  size_t worker_id) const;
+
+    /* UCX data */
+    std::unique_ptr<nixlUcxContext> uc;
+    std::vector<std::unique_ptr<nixlUcxWorker>> uws;
+    std::string workerAddr;
+
+    /* CUDA data*/
+    std::unique_ptr<nixlUcxCudaCtx> cudaCtx; // Context matching specific device
+    bool cuda_addr_wa;
+
+    // Context to use when current context is missing
+    nixlUcxCudaDevicePrimaryCtxPtr m_cudaPrimaryCtx;
+
+    /* Notifications */
+    notif_list_t notifMainList;
+
+    // Map of agent name to saved nixlUcxConnection info
+    std::unordered_map<std::string, ucx_connection_ptr_t, std::hash<std::string>, strEqual>
+        remoteConnMap;
 };
 
 /**
