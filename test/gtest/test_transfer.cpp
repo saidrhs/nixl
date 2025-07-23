@@ -260,28 +260,6 @@ protected:
         }
     }
 
-    void waitForXfer(nixlAgent &from, const std::string &from_name,
-                     nixlAgent &to, nixlXferReqH *xfer_req)
-    {
-        nixl_notifs_t notif_map;
-        bool xfer_done;
-        do {
-            // progress on "from" agent while waiting for notification
-            nixl_status_t status = from.getXferStatus(xfer_req);
-            EXPECT_TRUE((status == NIXL_SUCCESS) || (status == NIXL_IN_PROG));
-            xfer_done = (status == NIXL_SUCCESS);
-
-            // Get notifications and progress all agents to avoid deadlocks
-            status = to.getNotifs(notif_map);
-            ASSERT_EQ(status, NIXL_SUCCESS);
-        } while (notif_map.empty() || !xfer_done);
-
-        // Expect the notification from the right agent
-        auto &notif_list = notif_map[from_name];
-        EXPECT_EQ(notif_list.size(), 1u);
-        EXPECT_EQ(notif_list.front(), NOTIF_MSG);
-    }
-
     void createRegisteredMem(nixlAgent& agent,
                              size_t size, size_t count,
                              nixl_mem_t mem_type,
@@ -302,10 +280,11 @@ protected:
         agent.deregisterMem(desc_list);
     }
 
-    void verifyNotifs(nixlAgent &agent, const std::string &from_name, size_t expected_count)
-    {
-        nixl_notifs_t notif_map;
-
+    void
+    verifyNotifs(nixlAgent &agent,
+                 const std::string &from_name,
+                 size_t expected_count,
+                 nixl_notifs_t notif_map = {}) {
         for (int i = 0; i < retry_count; i++) {
             nixl_status_t status = agent.getNotifs(notif_map);
             ASSERT_EQ(status, NIXL_SUCCESS);
@@ -336,11 +315,17 @@ protected:
         exchangeMD();
 
         std::vector<std::thread> threads;
+        nixl_notifs_t notif_map;
         for (size_t thread = 0; thread < num_threads; ++thread) {
             threads.emplace_back([&]() {
                 for (size_t i = 0; i < repeat; ++i) {
                     nixl_status_t status = from.genNotif(to_name, NOTIF_MSG);
                     ASSERT_EQ(status, NIXL_SUCCESS);
+
+                    if (!isProgressThreadEnabled()) {
+                        ASSERT_EQ(NIXL_SUCCESS, from.getNotifs(notif_map));
+                        ASSERT_EQ(NIXL_SUCCESS, to.getNotifs(notif_map));
+                    }
                 }
             });
         }
@@ -349,8 +334,7 @@ protected:
             thread.join();
         }
 
-        verifyNotifs(to, from_name, total_notifs);
-
+        verifyNotifs(to, from_name, total_notifs, std::move(notif_map));
         invalidateMD();
     }
 
@@ -364,6 +348,7 @@ protected:
     {
         std::mutex logger_mutex;
         std::vector<std::thread> threads;
+        nixl_notifs_t notif_map;
         for (size_t thread = 0; thread < num_threads; ++thread) {
             threads.emplace_back([&, thread]() {
                 nixl_opt_args_t extra_params;
@@ -391,6 +376,9 @@ protected:
                         if (status == NIXL_SUCCESS) {
                             break;
                         }
+                        if (!isProgressThreadEnabled()) {
+                            ASSERT_EQ(NIXL_SUCCESS, to.getNotifs(notif_map));
+                        }
                         std::this_thread::sleep_for(retry_timeout);
                     }
                     EXPECT_TRUE(status == NIXL_SUCCESS);
@@ -415,8 +403,7 @@ protected:
             thread.join();
         }
 
-        verifyNotifs(to, from_name, repeat * num_threads);
-
+        verifyNotifs(to, from_name, repeat * num_threads, std::move(notif_map));
         invalidateMD();
     }
 
@@ -528,6 +515,7 @@ TEST_P(TestTransfer, ListenerCommSize) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ucx, TestTransfer, testing::Values(std::make_tuple("UCX", true, 2)));
+INSTANTIATE_TEST_SUITE_P(ucx_no_pt, TestTransfer, testing::Values(std::make_tuple("UCX", false, 2)));
 INSTANTIATE_TEST_SUITE_P(ucx_mo, TestTransfer, testing::Values(std::make_tuple("UCX_MO", true, 2)));
 
 } // namespace gtest
