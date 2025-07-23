@@ -600,7 +600,7 @@ nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams &init_params)
     if (custom_params->count("device_list")!=0)
         devs = str_split((*custom_params)["device_list"], ", ");
 
-    numWorkers = init_params.getOrDefault("num_workers", 1);
+    numWorkers = nixl_b_params_get(custom_params, "num_workers", 1);
 
     ucp_err_handling_mode_t err_handling_mode;
     const auto err_handling_mode_it =
