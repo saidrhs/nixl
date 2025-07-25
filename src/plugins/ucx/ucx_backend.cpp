@@ -924,7 +924,20 @@ nixlUcxThreadPoolEngine::sendXferRange(const nixl_xfer_op_t &operation,
 
 int
 nixlUcxThreadPoolEngine::vramApplyCtx() {
-    // TODO: apply ctx to all dedicated and shared workers
+    if (m_sharedThread) {
+        m_sharedThread->join();
+        m_sharedThread->start();
+    }
+    if (m_io) {
+        m_io->stop();
+        for (auto &thread : m_dedicatedThreads) {
+            thread->join();
+        }
+        m_io->restart();
+        for (auto &thread : m_dedicatedThreads) {
+            thread->start();
+        }
+    }
     return nixlUcxEngine::vramApplyCtx();
 }
 
