@@ -235,6 +235,15 @@ protected:
     virtual void
     appendNotif(std::string remote_name, std::string msg);
 
+    virtual nixl_status_t
+    sendXferRange(const nixl_xfer_op_t &operation,
+                  const nixl_meta_dlist_t &local,
+                  const nixl_meta_dlist_t &remote,
+                  const std::string &remote_agent,
+                  nixlBackendReqH *handle,
+                  size_t start_idx,
+                  size_t end_idx) const;
+
     nixlUcxEngine(const nixlBackendInitParams &init_params);
 
 private:
@@ -330,6 +339,61 @@ private:
     std::unique_ptr<nixlUcxThread> thread;
     std::mutex notifMtx;
     notif_list_t notifPthr;
+};
+
+namespace asio {
+class io_context;
+}
+
+class nixlUcxThreadPoolEngine : public nixlUcxEngine {
+public:
+    nixlUcxThreadPoolEngine(const nixlBackendInitParams &init_params);
+    ~nixlUcxThreadPoolEngine();
+
+    nixl_status_t
+    prepXfer(const nixl_xfer_op_t &operation,
+             const nixl_meta_dlist_t &local,
+             const nixl_meta_dlist_t &remote,
+             const std::string &remote_agent,
+             nixlBackendReqH *&handle,
+             const nixl_opt_b_args_t *opt_args = nullptr) const override;
+
+    bool
+    supportsProgTh() const override {
+        return true;
+    }
+
+    size_t
+    getWorkerId() const override {
+        std::thread::id id = std::this_thread::get_id();
+        return (std::hash<std::thread::id>{}(id) % m_numSharedWorkers);
+    }
+
+    nixl_status_t
+    getNotifs(notif_list_t &notif_list) override;
+
+protected:
+    int
+    vramApplyCtx() override;
+    void
+    appendNotif(std::string remote_name, std::string msg) override;
+
+    nixl_status_t
+    sendXferRange(const nixl_xfer_op_t &operation,
+                  const nixl_meta_dlist_t &local,
+                  const nixl_meta_dlist_t &remote,
+                  const std::string &remote_agent,
+                  nixlBackendReqH *handle,
+                  size_t start_idx,
+                  size_t end_idx) const override;
+
+private:
+    std::unique_ptr<asio::io_context> m_io;
+    std::unique_ptr<nixlUcxThread> m_sharedThread;
+    std::vector<std::unique_ptr<nixlUcxThread>> m_dedicatedThreads;
+    size_t m_numSharedWorkers;
+    std::mutex m_notifMutex;
+    notif_list_t m_notifThread;
 };
 
 #endif
