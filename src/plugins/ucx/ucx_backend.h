@@ -221,13 +221,13 @@ protected:
         return uws[worker_id];
     }
 
-    void
-    getNotifsImpl(notif_list_t &notif_list);
-
     virtual size_t
     getWorkerId() const {
         return std::hash<std::thread::id>{}(std::this_thread::get_id()) % uws.size();
     }
+
+    void
+    getNotifsImpl(notif_list_t &notif_list);
 
     virtual int
     vramApplyCtx();
