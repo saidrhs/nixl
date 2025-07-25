@@ -469,14 +469,14 @@ public:
     join() {
         const char signal = 'X';
         int ret = write(m_controlPipe[1], &signal, sizeof(signal));
-        if (ret < 0)
-            NIXL_PERROR << "write to progress thread control pipe failed";
+        if (ret < 0) NIXL_PERROR << "write to progress thread control pipe failed";
 
         m_thread->join();
         m_threadActive.reset();
     }
 
-    void addWorker(nixlUcxWorker *worker, size_t workerId) {
+    void
+    addWorker(nixlUcxWorker *worker, size_t workerId) {
         NIXL_ASSERT(m_workers.size() < m_workers.capacity());
         m_pollFds[m_workers.size()] = {worker->getEfd(), POLLIN, 0};
         m_workers.push_back(worker);
@@ -504,7 +504,8 @@ public:
         return tls;
     }
 
-    static bool isProgressThread(const nixlUcxEngine *engine) noexcept {
+    static bool
+    isProgressThread(const nixlUcxEngine *engine) noexcept {
         nixlUcxThread *thread = tlsThread();
         return thread && thread->m_engine == engine;
     }
@@ -525,12 +526,12 @@ protected:
         bool pthrStop = false;
         while (!pthrStop) {
             for (size_t i = 0; i < m_pollFds.size() - 1; i++) {
-                if (!(m_pollFds[i].revents & POLLIN) && !timeout)
-                    continue;
+                if (!(m_pollFds[i].revents & POLLIN) && !timeout) continue;
                 m_pollFds[i].revents = 0;
                 nixlUcxWorker *worker = getWorker(i);
                 do {
-                    while (worker->progress());
+                    while (worker->progress())
+                        ;
                 } while (worker->arm() == NIXL_IN_PROG);
             }
             timeout = false;
@@ -546,8 +547,7 @@ protected:
 
                 char signal;
                 int ret = read(m_pollFds.back().fd, &signal, sizeof(signal));
-                if (ret < 0)
-                    NIXL_PERROR << "read() on control pipe failed";
+                if (ret < 0) NIXL_PERROR << "read() on control pipe failed";
 
                 pthrStop = true;
             }
