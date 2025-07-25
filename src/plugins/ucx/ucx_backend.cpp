@@ -993,6 +993,12 @@ nixlUcxEngine::nixlUcxEngine(const nixlBackendInitParams &init_params)
         devs = str_split((*custom_params)["device_list"], ", ");
 
     numWorkers = nixl_b_params_get(custom_params, "num_workers", 1);
+    size_t numThreads = nixl_b_params_get(custom_params, "num_threads", 0);
+
+    if (numWorkers <= numThreads) {
+        /* There must be at least one shared worker */
+        numWorkers = numThreads + 1;
+    }
 
     ucp_err_handling_mode_t err_handling_mode;
     const auto err_handling_mode_it =
