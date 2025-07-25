@@ -301,9 +301,10 @@ private:
         remoteConnMap;
 };
 
+class nixlUcxThread;
+
 /**
  * Represents an engine with a single progress thread for all shared workers
- * TODO: can it be merged with nixlUcxThreadPoolEngine?
  */
 class nixlUcxThreadEngine : public nixlUcxEngine {
 public:
@@ -326,35 +327,8 @@ protected:
     appendNotif(std::string remote_name, std::string msg) override;
 
 private:
-    // Threading infrastructure
-    //   TODO: move the thread management one outside of NIXL common infra
-    void
-    progressFunc();
-    void
-    progressThreadStart();
-    void
-    progressThreadStop();
-
-    bool
-    isProgressThread() const noexcept {
-        return std::this_thread::get_id() == pthr.get_id();
-    }
-
-    void
-    notifProgress();
-    void
-    notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt);
-
-    std::mutex pthrActiveLock;
-    std::condition_variable pthrActiveCV;
-    bool pthrActive;
-    std::thread pthr;
-    std::chrono::milliseconds pthrDelay;
-    int pthrControlPipe[2];
-    std::vector<pollfd> pollFds;
-
+    std::unique_ptr<nixlUcxThread> thread;
     std::mutex notifMtx;
-    notif_list_t notifPthrPriv;
     notif_list_t notifPthr;
 };
 

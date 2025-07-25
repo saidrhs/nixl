@@ -22,6 +22,7 @@
 
 #include <optional>
 #include <limits>
+#include <future>
 #include <string.h>
 #include <unistd.h>
 #include "absl/strings/numbers.h"
@@ -430,141 +431,182 @@ public:
  * Progress thread management
 *****************************************/
 
+/*
+ * This class encapsulates a thread that polls one or multiple UCX workers
+ */
+class nixlUcxThread {
+public:
+    nixlUcxThread(const nixlUcxEngine *engine,
+                  std::function<void()> init,
+                  size_t numWorkers,
+                  std::chrono::milliseconds delay)
+        : m_engine(engine),
+          m_init(init),
+          m_delay(delay) {
+        if (pipe(m_controlPipe) < 0) {
+            throw std::runtime_error("Couldn't create progress thread control pipe");
+        }
+        m_workers.reserve(numWorkers);
+        m_pollFds.resize(numWorkers + 1);
+        m_pollFds.back() = {m_controlPipe[0], POLLIN, 0};
+    }
+
+    ~nixlUcxThread() {
+        close(m_controlPipe[0]);
+        close(m_controlPipe[1]);
+    }
+
+    void
+    start() {
+        NIXL_ASSERT(!m_threadActive);
+        m_threadActive = std::make_unique<std::promise<void>>();
+        auto active = m_threadActive->get_future();
+        m_thread = std::make_unique<std::thread>(std::ref(*this));
+        active.wait();
+    }
+
+    void
+    join() {
+        const char signal = 'X';
+        int ret = write(m_controlPipe[1], &signal, sizeof(signal));
+        if (ret < 0)
+            NIXL_PERROR << "write to progress thread control pipe failed";
+
+        m_thread->join();
+        m_threadActive.reset();
+    }
+
+    void addWorker(nixlUcxWorker *worker, size_t workerId) {
+        NIXL_ASSERT(m_workers.size() < m_workers.capacity());
+        m_pollFds[m_workers.size()] = {worker->getEfd(), POLLIN, 0};
+        m_workers.push_back(worker);
+        m_workerIds.push_back(workerId);
+    }
+
+    size_t
+    getNumWorkers() const {
+        return m_workers.size();
+    }
+
+    nixlUcxWorker *
+    getWorker(size_t idx = 0) const {
+        return m_workers[idx];
+    }
+
+    size_t
+    getWorkerId(size_t idx = 0) const {
+        return m_workerIds[idx];
+    }
+
+    static nixlUcxThread *&
+    tlsThread() {
+        static thread_local nixlUcxThread *tls = nullptr;
+        return tls;
+    }
+
+    static bool isProgressThread(const nixlUcxEngine *engine) noexcept {
+        nixlUcxThread *thread = tlsThread();
+        return thread && thread->m_engine == engine;
+    }
+
+    void
+    operator()() {
+        tlsThread() = this;
+        m_init();
+        m_threadActive->set_value();
+        run();
+    }
+
+protected:
+    virtual void
+    run() {
+        // Set timeout event so that the main loop would progress all workers on first iteration
+        bool timeout = true;
+        bool pthrStop = false;
+        while (!pthrStop) {
+            for (size_t i = 0; i < m_pollFds.size() - 1; i++) {
+                if (!(m_pollFds[i].revents & POLLIN) && !timeout)
+                    continue;
+                m_pollFds[i].revents = 0;
+                nixlUcxWorker *worker = getWorker(i);
+                do {
+                    while (worker->progress());
+                } while (worker->arm() == NIXL_IN_PROG);
+            }
+            timeout = false;
+
+            int ret;
+            while ((ret = poll(m_pollFds.data(), m_pollFds.size(), m_delay.count())) < 0)
+                NIXL_PTRACE << "Call to poll() was interrupted, retrying";
+
+            if (!ret) {
+                timeout = true;
+            } else if (m_pollFds.back().revents & POLLIN) {
+                m_pollFds.back().revents = 0;
+
+                char signal;
+                int ret = read(m_pollFds.back().fd, &signal, sizeof(signal));
+                if (ret < 0)
+                    NIXL_PERROR << "read() on control pipe failed";
+
+                pthrStop = true;
+            }
+        }
+    }
+
+private:
+    const nixlUcxEngine *m_engine;
+    std::function<void()> m_init;
+    std::vector<nixlUcxWorker *> m_workers;
+    std::vector<size_t> m_workerIds;
+    std::unique_ptr<std::thread> m_thread;
+    std::unique_ptr<std::promise<void>> m_threadActive;
+    std::chrono::milliseconds m_delay;
+    int m_controlPipe[2];
+    std::vector<pollfd> m_pollFds;
+};
+
 nixlUcxThreadEngine::nixlUcxThreadEngine(const nixlBackendInitParams &init_params)
     : nixlUcxEngine(init_params) {
     if (!nixlUcxMtLevelIsSupported(nixl_ucx_mt_t::WORKER)) {
         throw std::invalid_argument("UCX library does not support multi-threading");
     }
 
-    if (pipe(pthrControlPipe) < 0) {
-        throw std::runtime_error("Couldn't create progress thread control pipe");
-    }
-
     // This will ensure that the resulting delay is at least 1ms and fits into int in order for
     // it to be compatible with poll()
-    pthrDelay = std::chrono::ceil<std::chrono::milliseconds>(std::chrono::microseconds(
+    auto pthrDelay = std::chrono::ceil<std::chrono::milliseconds>(std::chrono::microseconds(
         init_params.pthrDelay < std::numeric_limits<int>::max() ? init_params.pthrDelay :
                                                                   std::numeric_limits<int>::max()));
 
-    for (auto &uw : getWorkers()) {
-        pollFds.push_back({uw->getEfd(), POLLIN, 0});
+    size_t numWorkers = getWorkers().size();
+    thread = std::make_unique<nixlUcxThread>(
+        this, [this]() { nixlUcxEngine::vramApplyCtx(); }, numWorkers, pthrDelay);
+    for (size_t i = 0; i < numWorkers; i++) {
+        thread->addWorker(getWorkers()[i].get(), i);
     }
-    pollFds.push_back({pthrControlPipe[0], POLLIN, 0});
-
-    progressThreadStart();
+    thread->start();
 }
 
 nixlUcxThreadEngine::~nixlUcxThreadEngine() {
-    progressThreadStop();
-    close(pthrControlPipe[0]);
-    close(pthrControlPipe[1]);
-}
-
-void
-nixlUcxThreadEngine::progressFunc() {
-    using namespace nixlTime;
-
-    nixlUcxEngine::vramApplyCtx();
-
-    {
-        std::unique_lock<std::mutex> lock(pthrActiveLock);
-        pthrActive = true;
-    }
-    pthrActiveCV.notify_one();
-
-    // Set timeout event so that the main loop would progress all workers on first iteration
-    bool timeout = true;
-    bool pthrStop = false;
-    while (!pthrStop) {
-        for (size_t wid = 0; wid < pollFds.size() - 1; wid++) {
-            if (!(pollFds[wid].revents & POLLIN) && !timeout)
-                continue;
-            pollFds[wid].revents = 0;
-
-            bool made_progress = false;
-            nixl_status_t status;
-            const auto &uw = getWorkers()[wid];
-            do {
-                while (uw->progress())
-                    made_progress = true;
-
-                status = uw->arm();
-            } while (status == NIXL_IN_PROG);
-            NIXL_ASSERT(status == NIXL_SUCCESS) << ", status: " << status;
-
-            if (made_progress && !wid)
-                notifProgress();
-        }
-        timeout = false;
-
-        int ret;
-        while ((ret = poll(pollFds.data(), pollFds.size(), pthrDelay.count())) < 0)
-            NIXL_PTRACE << "Call to poll() was interrupted, retrying";
-
-        if (!ret) {
-            timeout = true;
-        } else if (pollFds.back().revents & POLLIN) {
-            pollFds.back().revents = 0;
-
-            char signal;
-            int ret = read(pollFds.back().fd, &signal, sizeof(signal));
-            if (ret < 0)
-                NIXL_PERROR << "read() on control pipe failed";
-
-            pthrStop = true;
-        }
-    }
-}
-
-void
-nixlUcxThreadEngine::progressThreadStart() {
-    {
-        std::unique_lock<std::mutex> lock(pthrActiveLock);
-        pthrActive = false;
-    }
-
-    pthr = std::thread(&nixlUcxThreadEngine::progressFunc, this);
-
-    std::unique_lock<std::mutex> lock(pthrActiveLock);
-    pthrActiveCV.wait(lock, [&]{ return pthrActive; });
-}
-
-void
-nixlUcxThreadEngine::progressThreadStop() {
-    const char signal = 'X';
-    int ret = write(pthrControlPipe[1], &signal, sizeof(signal));
-    if (ret < 0)
-        NIXL_PERROR << "write to progress thread control pipe failed";
-    pthr.join();
+    thread->join();
 }
 
 int
 nixlUcxThreadEngine::vramApplyCtx() {
-    progressThreadStop();
-    progressThreadStart();
+    thread->join();
+    thread->start();
     return nixlUcxEngine::vramApplyCtx();
 }
 
 void
 nixlUcxThreadEngine::appendNotif(std::string remote_name, std::string msg) {
-    if (isProgressThread()) {
+    if (nixlUcxThread::isProgressThread(this)) {
         /* Append to the private list to allow batching */
-        std::unique_lock<std::mutex> lock(notifMtx);
-        notifPthrPriv.push_back(std::make_pair(std::move(remote_name), std::move(msg)));
+        const std::lock_guard<std::mutex> lock(notifMtx);
+        notifPthr.push_back(std::make_pair(std::move(remote_name), std::move(msg)));
     } else {
         nixlUcxEngine::appendNotif(std::move(remote_name), std::move(msg));
     }
-}
-
-void
-nixlUcxThreadEngine::notifProgressCombineHelper(notif_list_t &src, notif_list_t &tgt) {
-    const std::lock_guard<std::mutex> lock(notifMtx);
-    moveNotifList(src, tgt);
-}
-
-void
-nixlUcxThreadEngine::notifProgress() {
-    notifProgressCombineHelper(notifPthrPriv, notifPthr);
 }
 
 nixl_status_t
@@ -572,7 +614,8 @@ nixlUcxThreadEngine::getNotifs(notif_list_t &notif_list) {
     if (!notif_list.empty()) return NIXL_ERR_INVALID_PARAM;
 
     getNotifsImpl(notif_list);
-    notifProgressCombineHelper(notifPthr, notif_list);
+    const std::lock_guard<std::mutex> lock(notifMtx);
+    moveNotifList(notifPthr, notif_list);
     return NIXL_SUCCESS;
 }
 
