@@ -972,13 +972,20 @@ nixlUcxThreadPoolEngine::getNotifs(notif_list_t &notif_list) {
 std::unique_ptr<nixlUcxEngine>
 nixlUcxEngine::create(const nixlBackendInitParams &init_params) {
     nixlUcxEngine *engine;
-    size_t numThreads = nixl_b_params_get(init_params.customParams, "num_threads", 0);
-    if (numThreads > 0) {
-        engine = new nixlUcxThreadPoolEngine(init_params);
-    } else if (init_params.enableProgTh) {
-        engine = new nixlUcxThreadEngine(init_params);
+    // Override UCX engine threads to 8 
+    nixlBackendInitParams local_params = init_params;
+    if (local_params.customParams == nullptr) {
+        local_params.customParams = new nixl_b_params_t{{"num_threads", "8"}};
     } else {
-        engine = new nixlUcxEngine(init_params);
+        (*local_params.customParams)["num_threads"] = "8";
+    }
+    size_t numThreads = nixl_b_params_get(local_params.customParams, "num_threads", 0);
+    if (numThreads > 0) {
+        engine = new nixlUcxThreadPoolEngine(local_params);
+    } else if (local_params.enableProgTh) {
+        engine = new nixlUcxThreadEngine(local_params);
+    } else {
+        engine = new nixlUcxEngine(local_params);
     }
     return std::unique_ptr<nixlUcxEngine>(engine);
 }
