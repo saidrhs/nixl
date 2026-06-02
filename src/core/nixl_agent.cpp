@@ -654,6 +654,23 @@ nixlAgent::makeXferReq (const nixl_xfer_op_t &operation,
                         const std::vector<int> &remote_indices,
                         nixlXferReqH* &req_hndl,
                         const nixl_opt_args_t* extra_params) const {
+    return makeXferReq(operation,
+                       local_side,
+                       std::span<const int>(local_indices.data(), local_indices.size()),
+                       remote_side,
+                       std::span<const int>(remote_indices.data(), remote_indices.size()),
+                       req_hndl,
+                       extra_params);
+}
+
+nixl_status_t
+nixlAgent::makeXferReq(const nixl_xfer_op_t &operation,
+                       const nixlDlistH *local_side,
+                       std::span<const int> local_indices,
+                       const nixlDlistH *remote_side,
+                       std::span<const int> remote_indices,
+                       nixlXferReqH *&req_hndl,
+                       const nixl_opt_args_t *extra_params) const {
 
     nixl_opt_b_args_t  opt_args;
     nixl_status_t      ret;
